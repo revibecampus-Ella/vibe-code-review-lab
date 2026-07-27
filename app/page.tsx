@@ -25,6 +25,9 @@ const lightOptions=[["jamstack","정적·경량 구조"],["static site generator
 
 export default function Home(){
   const [fontScale,setFontScale]=useState<"normal"|"large"|"xlarge">("normal");
+  // 서버 렌더링 시점에는 localStorage 를 읽을 수 없어, 저장해 둔 글자 크기는
+  // 화면이 붙은 뒤에만 복원할 수 있습니다.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{const saved=localStorage.getItem("vibe-font-scale") as "normal"|"large"|"xlarge"|null;if(saved)setFontScale(saved)},[]);
   useEffect(()=>{const size={normal:"16px",large:"18px",xlarge:"20px"}[fontScale];document.documentElement.style.fontSize=size;localStorage.setItem("vibe-font-scale",fontScale);return()=>{document.documentElement.style.fontSize=""}},[fontScale]);
   const [repoUrl,setRepoUrl]=useState("");const [deployUrl,setDeployUrl]=useState("");const [purpose,setPurpose]=useState("");
@@ -106,7 +109,6 @@ function RepoWorkbench(){
   const queryPreview=`${topic || "검색어"} in:name,description,readme stars:>=${minStars||0} archived:false fork:false${language?` language:${language}`:""}`;
   function chooseBusiness(id:string){const next=businessTopics.find(x=>x.id===id)||businessTopics[0];setBusiness(id);setTopic(next.topics[0][0]);setTopicLabel(next.topics[0][1])}
   function chooseTopic(value:string,label:string){setTopic(value);setTopicLabel(label)}
-  function useReferenceKeyword(value:string,label:string){setTopic(value);setTopicLabel(label)}
   async function search(){
     setSearching(true);setError("");setItems([]);setSelectedRepo(null);setReport(null);setStatuses({});
     try{const res=await fetch("/api/search-repos",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({topic,language,purpose:goal,minStars:Number(minStars)})});const data=await res.json();if(!res.ok)throw new Error(data.error||"저장소를 검색하지 못했습니다.");setItems(data.items||[])}
@@ -127,7 +129,7 @@ function RepoWorkbench(){
       <div className="businessChoices">{businessTopics.map(x=><button className={business===x.id?"active":""} key={x.id} onClick={()=>chooseBusiness(x.id)}><b>{x.label}</b><small>{x.description}</small></button>)}</div>
       <div className="topicChooser"><b>{activeBusiness.label}의 추천 검색어</b><div>{activeBusiness.topics.map(([value,label])=><button className={topic===value?"active":""} key={value} onClick={()=>chooseTopic(value,label)}>{label}<code>{value}</code></button>)}</div></div>
       <label className="keywordInput"><b>검색 키워드</b><small>추천어를 그대로 쓰거나 원하는 말로 바꿔 검색하세요. 여러 조건을 강제로 묶지 않습니다.</small><input value={topic} onChange={e=>{setTopic(e.target.value);setTopicLabel(e.target.value)}} placeholder="예: landing page, newsletter, booking system"/></label>
-      <div className="referenceKeywords"><div><b>경량화 참고 키워드</b><small>검색 조건이 아니라 참고용입니다. 하나를 누르면 검색어로 바뀝니다.</small></div>{lightOptions.map(([value,label])=><button key={value} onClick={()=>useReferenceKeyword(value,label)}><span>{label}</span><code>{value}</code></button>)}</div>
+      <div className="referenceKeywords"><div><b>경량화 참고 키워드</b><small>검색 조건이 아니라 참고용입니다. 하나를 누르면 검색어로 바뀝니다.</small></div>{lightOptions.map(([value,label])=><button key={value} onClick={()=>chooseTopic(value,label)}><span>{label}</span><code>{value}</code></button>)}</div>
       <div className="searchOptions"><label><b>주요 기술</b><select value={language} onChange={e=>setLanguage(e.target.value)}><option value="">전체</option><option>TypeScript</option><option>JavaScript</option><option>Python</option><option>Java</option><option>Go</option></select></label><label><b>추천 목적</b><select value={goal} onChange={e=>setGoal(e.target.value)}><option value="overall">종합 진단</option><option value="structure">구조 참고</option><option value="test">테스트 학습</option><option value="security">보안 점검</option><option value="ui">UI·UX 참고</option></select></label><label><b>최소 Star</b><input type="number" min="0" value={minStars} onChange={e=>setMinStars(e.target.value)}/></label></div>
       <div className="queryPreview"><span>실제 검색 방식</span><code>{queryPreview}</code><small>Topic 등록 여부에 의존하지 않고 저장소 이름·설명·README에서 넓게 찾습니다. 추천 판단은 검색 결과를 받은 뒤 수행합니다.</small></div>
       <button className="finderSearch" onClick={search} disabled={!topic.trim()||searching}>{searching?"GitHub에서 찾는 중…":"⌕ 이 키워드로 Repo 검색"}</button>

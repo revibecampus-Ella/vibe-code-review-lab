@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 같은 브랜치에 새 커밋이 올라오면 진행 중인 검사를 취소합니다.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 빌드 · 테스트 · 린트
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 의존성 설치
+        run: npm ci
+
+      # 배포 환경에서는 호스팅 플랫폼이 넣어 주는 파일이라 저장소에 없습니다.
+      # 빌드가 이 파일을 읽어야 하므로 검사용 기본값을 만들어 둡니다.
+      - name: Sites 호스팅 설정 준비
+        run: |
+          mkdir -p .openai
+          if [ ! -f .openai/hosting.json ]; then
+            echo '{"d1":null,"r2":null}' > .openai/hosting.json
+          fi
+
+      - name: 린트
+        run: npm run lint
+
+      # 빌드와 아티팩트 검증까지 함께 수행합니다.
+      - name: 빌드 및 테스트
+        run: npm test
