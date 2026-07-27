@@ -101,8 +101,10 @@ function readmeSummary(readme:unknown,purpose:unknown,language:unknown){
 function issue(title:string,priority:string,level:string,area:string,location:string,evidence:string,status:string,impact:string,recommendation:string):Issue{return{title,priority,level,area,location,evidence,status,impact,recommendation}}
 function analyzeFiles(files:{path:string;content:string}[],blobs:TreeItem[]){
   const out:Issue[]=[]; const joined=files.map(x=>x.content).join("\n");
+  for(const envFile of blobs.filter(x=>isSensitiveEnvPath(x.path))){
+    out.push(issue("환경변수 파일이 Repository에 포함되어 있습니다","긴급","확인됨","보안",envFile.path,"Repository 전체 파일 목록에서 환경변수 파일 경로를 직접 확인했습니다.","민감정보 포함 가능","API 키나 비밀번호가 노출될 수 있습니다.","즉시 파일 내용을 확인하고 비밀값 폐기·재발급 후 Git 이력에서도 제거하세요."));
+  }
   for(const f of files){
-    if(/(^|\/)\.env$/i.test(f.path))out.push(issue("환경변수 파일이 Repository에 포함되어 있습니다","긴급","확인됨","보안",f.path,".env 파일 경로를 직접 확인했습니다.","민감정보 포함 가능","API 키나 비밀번호가 노출될 수 있습니다.","즉시 파일 내용을 확인하고 비밀값 폐기·재발급 후 Git 이력에서도 제거하세요."));
     const secret=f.content.match(/(?:api[_-]?key|secret|token|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{16,}["']/i);
     if(secret)out.push(issue("코드에 비밀값으로 보이는 문자열이 있습니다","긴급","추정됨","보안",f.path,`${secret[0].slice(0,28)}… 형태의 값을 확인했습니다. 실제 유효한 키인지는 확인하지 않았습니다.`,"하드코딩 의심","유효한 값이면 외부에 노출되어 악용될 수 있습니다.","비밀 저장소나 환경변수로 옮기고 해당 키의 유효성을 확인하세요."));
     if(f.content.length>45000)out.push(issue("한 파일에 많은 코드가 모여 있습니다","중간","확인됨","유지보수",f.path,`읽은 파일 크기가 약 ${Math.round(f.content.length/1000)}KB입니다.`,"대형 파일","기능 위치를 찾고 수정 영향 범위를 판단하기 어려울 수 있습니다.","화면·데이터·도우미 기능 단위로 분리할 수 있는지 검토하세요."));
@@ -114,6 +116,10 @@ function analyzeFiles(files:{path:string;content:string}[],blobs:TreeItem[]){
   if(!blobs.some(x=>x.path===".env.example")&&/(process\.env|import\.meta\.env|os\.environ)/.test(joined))out.push(issue("환경변수 예시 문서를 확인하지 못했습니다","중간","추정됨","인수인계","Repository 루트 및 읽은 설정 파일","코드는 환경변수를 참조하지만 .env.example 파일은 구조에서 보이지 않습니다.","필요한 환경변수 목록 미확인","다른 담당자가 실행 환경을 재구성하기 어렵습니다.",".env.example에는 값 없이 변수명과 용도만 기록하세요."));
   if(!blobs.some(x=>/^README\.md$/i.test(x.path)))out.push(issue("README를 확인하지 못했습니다","높음","확인됨","인수인계","Repository 루트","README.md 파일이 구조에서 보이지 않습니다.","프로젝트 안내 부재","설치·실행·배포·기능 위치 인수인계가 어려워집니다.","목적, 설치, 실행, 환경변수, 배포, 테스트 순서로 README를 작성하세요."));
   return out;
+}
+function isSensitiveEnvPath(path:string){
+  if(!/(^|\/)\.env(?:\.[^/]+)?$/i.test(path))return false;
+  return !/\.(example|sample|template|defaults?)$/i.test(path);
 }
 function detectStack(files:{path:string;content:string}[],blobs:TreeItem[]){
   const all=files.map(x=>x.content).join("\n"); const paths=blobs.map(x=>x.path).join("\n"); const found:string[]=[];
@@ -129,16 +135,88 @@ function detectStack(files:{path:string;content:string}[],blobs:TreeItem[]){
 async function inspectUi(url:unknown){
   if(!url)return{status:"UI 화면 미확인",evidence:[],note:"배포 URL이 입력되지 않아 UI 평가를 생성하지 않았습니다."};
   try{
-    const parsed=new URL(String(url)); if(!["http:","https:"].includes(parsed.protocol))throw 0;
-    const r=await fetch(parsed,{redirect:"follow",headers:{"User-Agent":"Vibe-Code-Review-Lab"}});
+    const {response:r,finalUrl}=await fetchPublicHtml(String(url));
     if(!r.ok)return{status:"UI 화면 미확인",evidence:[],note:`배포 서버가 HTTP ${r.status} 응답을 반환했습니다.`};
     const type=r.headers.get("content-type")||""; if(!type.includes("text/html"))return{status:"UI 화면 미확인",evidence:[],note:"HTML 화면 응답을 읽지 못했습니다."};
-    const html=(await r.text()).slice(0,500000); const evidence:string[]=[];
+    const html=await readTextWithLimit(r,500000); const evidence:string[]=[];
+    if(finalUrl!==String(url))evidence.push("공개 주소의 안전한 리디렉션 경로 확인");
     const title=html.match(/<title[^>]*>([^<]*)/i)?.[1]?.trim(); if(title)evidence.push(`페이지 제목 확인: ${title}`);
     if(/name=["']viewport["']/i.test(html))evidence.push("모바일 viewport 설정 확인");
     const buttons=(html.match(/<(button|a)\b/gi)||[]).length;if(buttons)evidence.push(`버튼·링크 요소 약 ${buttons}개 확인`);
     const forms=(html.match(/<(input|textarea|select|form)\b/gi)||[]).length;if(forms)evidence.push(`입력폼 관련 요소 약 ${forms}개 확인`);
     const lang=html.match(/<html[^>]*lang=["']([^"']+)/i)?.[1];if(lang)evidence.push(`문서 언어 설정 확인: ${lang}`);
     return{status:"일부 확인",evidence,note:"배포 HTML 응답은 확인했습니다. 로그인 후 화면, 실제 클릭 동작, 겹침·잘림·색 대비는 브라우저 실사용 확인이 필요합니다."};
-  }catch{return{status:"UI 화면 미확인",evidence:[],note:"주소 오류, 로그인 필요, 서버 오류 또는 화면 수집 제한으로 확인하지 못했습니다."}}
+  }catch(error){
+    const message=error instanceof Error?error.message:"";
+    if(message==="BLOCKED_HOST")return{status:"UI 화면 미확인",evidence:[],note:"보안을 위해 로컬·사설 네트워크 또는 메타데이터 주소는 확인하지 않습니다."};
+    if(message==="RESPONSE_TOO_LARGE")return{status:"UI 화면 미확인",evidence:[],note:"화면 응답이 500KB를 넘어 안전을 위해 수집을 중단했습니다."};
+    if(message==="FETCH_TIMEOUT")return{status:"UI 화면 미확인",evidence:[],note:"배포 화면이 제한 시간 안에 응답하지 않아 수집을 중단했습니다."};
+    return{status:"UI 화면 미확인",evidence:[],note:"주소 오류, 로그인 필요, 서버 오류 또는 화면 수집 제한으로 확인하지 못했습니다."};
+  }
+}
+
+const redirectStatuses=new Set([301,302,303,307,308]);
+
+async function fetchPublicHtml(input:string){
+  let current=new URL(input);
+  for(let redirects=0;redirects<=4;redirects++){
+    assertPublicUrl(current);
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),8000);
+    let response:Response;
+    try{
+      response=await fetch(current,{redirect:"manual",signal:controller.signal,headers:{"User-Agent":"Vibe-Code-Review-Lab","Accept":"text/html,application/xhtml+xml"}});
+    }catch(error){
+      if(error instanceof Error&&error.name==="AbortError")throw new Error("FETCH_TIMEOUT");
+      throw error;
+    }finally{clearTimeout(timer)}
+    if(!redirectStatuses.has(response.status))return{response,finalUrl:current.toString()};
+    const location=response.headers.get("location");
+    if(!location)throw new Error("INVALID_REDIRECT");
+    current=new URL(location,current);
+  }
+  throw new Error("TOO_MANY_REDIRECTS");
+}
+
+function assertPublicUrl(url:URL){
+  if(!["http:","https:"].includes(url.protocol)||url.username||url.password)throw new Error("BLOCKED_HOST");
+  const host=url.hostname.toLowerCase().replace(/^\[|\]$/g,"").replace(/\.$/,"");
+  if(!host||host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host.endsWith(".home.arpa")||host==="metadata.google.internal")throw new Error("BLOCKED_HOST");
+  if(isBlockedIpv4(host)||isBlockedIpv6(host))throw new Error("BLOCKED_HOST");
+}
+
+function isBlockedIpv4(host:string){
+  if(!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host))return false;
+  const parts=host.split(".").map(Number);
+  if(parts.some(x=>x<0||x>255))return true;
+  const [a,b]=parts;
+  return a===0||a===10||a===127||a>=224||(a===100&&b>=64&&b<=127)||(a===169&&b===254)||(a===172&&b>=16&&b<=31)||(a===192&&b===0)||(a===192&&b===168)||(a===198&&b>=18&&b<=19);
+}
+
+function isBlockedIpv6(host:string){
+  if(!host.includes(":"))return false;
+  const value=host.toLowerCase();
+  if(value==="::"||value==="::1"||value.startsWith("fc")||value.startsWith("fd")||value.startsWith("fe8")||value.startsWith("fe9")||value.startsWith("fea")||value.startsWith("feb"))return true;
+  const mapped=value.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  return mapped?isBlockedIpv4(mapped[1]):false;
+}
+
+async function readTextWithLimit(response:Response,maxBytes:number){
+  const declared=Number(response.headers.get("content-length")||0);
+  if(declared>maxBytes)throw new Error("RESPONSE_TOO_LARGE");
+  if(!response.body)return"";
+  const reader=response.body.getReader();const decoder=new TextDecoder();let received=0;let text="";const deadline=Date.now()+8000;
+  try{
+    while(true){
+      const remaining=deadline-Date.now();if(remaining<=0)throw new Error("FETCH_TIMEOUT");
+      const {done,value}=await Promise.race([
+        reader.read(),
+        new Promise<never>((_,reject)=>setTimeout(()=>reject(new Error("FETCH_TIMEOUT")),remaining))
+      ]);
+      if(done)break;
+      received+=value.byteLength;if(received>maxBytes)throw new Error("RESPONSE_TOO_LARGE");
+      text+=decoder.decode(value,{stream:true});
+    }
+    return text+decoder.decode();
+  }finally{await reader.cancel().catch(()=>{})}
 }

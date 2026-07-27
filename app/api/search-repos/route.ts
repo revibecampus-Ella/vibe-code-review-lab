@@ -6,6 +6,7 @@ const topicTerms:Record<string,string[]>={
   "쇼핑몰":["ecommerce","shopping-cart","storefront"],"업무 관리":["project-management","task-management","workflow"]
 };
 const responseCache=new Map<string,{expires:number,value:unknown}>();
+const MAX_CACHE_ENTRIES=100;
 
 export async function POST(request:Request){
   try{
@@ -13,6 +14,7 @@ export async function POST(request:Request){
     const purpose=String(body.purpose||"overall");const minStars=Math.max(0,Math.min(10000,Number(body.minStars)||0));
     if(!topic)return Response.json({error:"찾고 싶은 프로젝트 주제를 입력해 주세요."},{status:400});
     const terms=broaden(topic).slice(0,4);const headers={Accept:"application/vnd.github+json","User-Agent":"Vibe-Code-Review-Lab"};
+    pruneCache();
     const cacheKey=JSON.stringify({topic,language,minStars,purpose});const cached=responseCache.get(cacheKey);
     if(cached&&cached.expires>Date.now())return Response.json(cached.value);
     const core=normalizeKeyword(topic);
@@ -24,11 +26,22 @@ export async function POST(request:Request){
     const merged=new Map<number,GitHubRepo>();for(const repo of search.items)if(!repo.archived&&!repo.fork)merged.set(repo.id,repo);
     const items=[...merged.values()].map(repo=>recommend(repo,terms,purpose)).sort((a,b)=>b.stars-a.stars||new Date(b.pushedAt).getTime()-new Date(a.pushedAt).getTime()).slice(0,18);
     const value={searchedTerms:terms,totalCandidates:merged.size,expanded:false,note:"이름·설명·README에서 넓게 검색한 뒤 공개 메타데이터를 근거로 적합도를 판단했습니다. 목록은 Star가 높은 순입니다.",items};
-    responseCache.set(cacheKey,{expires:Date.now()+10*60*1000,value});return Response.json(value);
+    responseCache.set(cacheKey,{expires:Date.now()+10*60*1000,value});
+    pruneCache();
+    return Response.json(value);
   }catch{return Response.json({error:"GitHub 검색 API에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요. raw.githubusercontent.com은 검색용이 아니라 선택한 Repo의 파일 원문을 읽을 때만 사용합니다."},{status:503})}
 }
 function broaden(topic:string){const preset=topicTerms[topic];if(preset)return preset;const tokens=topic.toLowerCase().split(/[\s,/#]+/).filter(x=>x.length>1);return[...new Set([topic,...tokens])]}
 function normalizeKeyword(topic:string){return topic.replace(/[():"]/g," ").replace(/\s+/g," ").trim()}
+function pruneCache(){
+  const now=Date.now();
+  for(const [key,item] of responseCache)if(item.expires<=now)responseCache.delete(key);
+  while(responseCache.size>MAX_CACHE_ENTRIES){
+    const oldest=responseCache.keys().next().value;
+    if(typeof oldest!=="string")break;
+    responseCache.delete(oldest);
+  }
+}
 async function githubSearch(q:string,headers:Record<string,string>){
   const r=await fetch(`https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=30`,{headers});
   const reset=r.headers.get("x-ratelimit-reset");if(r.status===403||r.status===429)return{ok:false,rateLimited:true,reset,items:[] as GitHubRepo[]};
