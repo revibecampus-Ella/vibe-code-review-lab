@@ -25,6 +25,9 @@ const lightOptions=[["jamstack","정적·경량 구조"],["static site generator
 
 export default function Home(){
   const [fontScale,setFontScale]=useState<"normal"|"large"|"xlarge">("normal");
+  // 서버 렌더링 시점에는 localStorage 를 읽을 수 없어, 저장해 둔 글자 크기는
+  // 화면이 붙은 뒤에만 복원할 수 있습니다.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(()=>{const saved=localStorage.getItem("vibe-font-scale") as "normal"|"large"|"xlarge"|null;if(saved)setFontScale(saved)},[]);
   useEffect(()=>{const size={normal:"16px",large:"18px",xlarge:"20px"}[fontScale];document.documentElement.style.fontSize=size;localStorage.setItem("vibe-font-scale",fontScale);return()=>{document.documentElement.style.fontSize=""}},[fontScale]);
   const [repoUrl,setRepoUrl]=useState("");const [deployUrl,setDeployUrl]=useState("");const [purpose,setPurpose]=useState("");
@@ -106,7 +109,6 @@ function RepoWorkbench(){
   const queryPreview=`${topic || "검색어"} in:name,description,readme stars:>=${minStars||0} archived:false fork:false${language?` language:${language}`:""}`;
   function chooseBusiness(id:string){const next=businessTopics.find(x=>x.id===id)||businessTopics[0];setBusiness(id);setTopic(next.topics[0][0]);setTopicLabel(next.topics[0][1])}
   function chooseTopic(value:string,label:string){setTopic(value);setTopicLabel(label)}
-  function useReferenceKeyword(value:string,label:string){setTopic(value);setTopicLabel(label)}
   async function search(){
     setSearching(true);setError("");setItems([]);setSelectedRepo(null);setReport(null);setStatuses({});
     try{const res=await fetch("/api/search-repos",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({topic,language,purpose:goal,minStars:Number(minStars)})});const data=await res.json();if(!res.ok)throw new Error(data.error||"저장소를 검색하지 못했습니다.");setItems(data.items||[])}
@@ -123,11 +125,11 @@ function RepoWorkbench(){
   async function copy(text:string){await navigator.clipboard.writeText(text);alert("클립보드에 복사했습니다.")}
   return <section className="repoWorkbench">
     <section className="purposeFinder">
-      <div className="purposeIntro"><div><small>유지비가 적은 목적형 프로젝트 찾기</small><h2>어떤 일에 활용할 프로젝트인가요?</h2><p>대규모 시스템보다 콘텐츠 자산화와 고객 접점 자동화에 바로 활용할 수 있는 경량 프로젝트를 찾습니다.</p></div><span>Star 높은 순</span></div>
+      <div className="purposeIntro"><div><small>유지비가 적은 목적형 프로젝트 찾기</small><h2>어떤 일에 활용할 프로젝트인가요?</h2><p>대규모 시스템보다 콘텐츠 자산화와 고객 접점 자동화에 바로 활용할 수 있는 경량 프로젝트를 찾습니다.</p></div><span>적합도 높은 순</span></div>
       <div className="businessChoices">{businessTopics.map(x=><button className={business===x.id?"active":""} key={x.id} onClick={()=>chooseBusiness(x.id)}><b>{x.label}</b><small>{x.description}</small></button>)}</div>
       <div className="topicChooser"><b>{activeBusiness.label}의 추천 검색어</b><div>{activeBusiness.topics.map(([value,label])=><button className={topic===value?"active":""} key={value} onClick={()=>chooseTopic(value,label)}>{label}<code>{value}</code></button>)}</div></div>
       <label className="keywordInput"><b>검색 키워드</b><small>추천어를 그대로 쓰거나 원하는 말로 바꿔 검색하세요. 여러 조건을 강제로 묶지 않습니다.</small><input value={topic} onChange={e=>{setTopic(e.target.value);setTopicLabel(e.target.value)}} placeholder="예: landing page, newsletter, booking system"/></label>
-      <div className="referenceKeywords"><div><b>경량화 참고 키워드</b><small>검색 조건이 아니라 참고용입니다. 하나를 누르면 검색어로 바뀝니다.</small></div>{lightOptions.map(([value,label])=><button key={value} onClick={()=>useReferenceKeyword(value,label)}><span>{label}</span><code>{value}</code></button>)}</div>
+      <div className="referenceKeywords"><div><b>경량화 참고 키워드</b><small>검색 조건이 아니라 참고용입니다. 하나를 누르면 검색어로 바뀝니다.</small></div>{lightOptions.map(([value,label])=><button key={value} onClick={()=>chooseTopic(value,label)}><span>{label}</span><code>{value}</code></button>)}</div>
       <div className="searchOptions"><label><b>주요 기술</b><select value={language} onChange={e=>setLanguage(e.target.value)}><option value="">전체</option><option>TypeScript</option><option>JavaScript</option><option>Python</option><option>Java</option><option>Go</option></select></label><label><b>추천 목적</b><select value={goal} onChange={e=>setGoal(e.target.value)}><option value="overall">종합 진단</option><option value="structure">구조 참고</option><option value="test">테스트 학습</option><option value="security">보안 점검</option><option value="ui">UI·UX 참고</option></select></label><label><b>최소 Star</b><input type="number" min="0" value={minStars} onChange={e=>setMinStars(e.target.value)}/></label></div>
       <div className="queryPreview"><span>실제 검색 방식</span><code>{queryPreview}</code><small>Topic 등록 여부에 의존하지 않고 저장소 이름·설명·README에서 넓게 찾습니다. 추천 판단은 검색 결과를 받은 뒤 수행합니다.</small></div>
       <button className="finderSearch" onClick={search} disabled={!topic.trim()||searching}>{searching?"GitHub에서 찾는 중…":"⌕ 이 키워드로 Repo 검색"}</button>
@@ -171,11 +173,30 @@ function ResultDashboard({report,tab,setTab,visibleIssues,deployProvided,reset,c
     <div className="bottomActions"><button onClick={()=>copy(document.body.innerText)}>전체 화면 내용 복사</button><button onClick={()=>copy(markdown())}>Markdown 복사</button><button onClick={()=>window.print()}>인쇄·PDF 저장</button></div>
   </main>
 }
-function Overview({report}:{report:Report}){const strengths=report.decisions.filter(d=>d.tone==="good").slice(0,3);const risks=report.issues.filter(i=>i.priority==="긴급"||i.priority==="높음").slice(0,3);return <div className="overview">
-  <section className="overallCard"><small>한눈에 보는 종합결론</small><div className="overallTitle"><span>!</span><h2>{report.verdict}</h2></div><p>{report.summary}</p><div className="twoColumns"><div className="strengthBox"><h3>✓ 확인된 강점</h3>{strengths.length?strengths.map(x=><p key={x.area}>• {x.area}: {x.verdict}</p>):<p>• 확인 범위에서는 뚜렷한 강점을 자동 확정하지 않았습니다.</p>}</div><div className="riskBox"><h3>! 주요 위험</h3>{risks.length?risks.map(x=><p key={x.title}>• {x.title}</p>):<p>• 긴급하거나 높은 위험은 발견되지 않았습니다.</p>}</div></div></section>
-  <section className="judgmentSection"><h2>현재 단계에서 가능한 판단</h2><div>{report.currentJudgments.map(j=><article className={j.tone} key={j.label}><small>{j.label}</small><b>{j.value}</b></article>)}</div></section>
+const signalText={danger:{mark:"!",label:"먼저 수정이 필요합니다"},caution:{mark:"△",label:"보완 후 진행할 수 있습니다"},good:{mark:"✓",label:"뚜렷한 위험 신호는 없습니다"}};
+function Overview({report}:{report:Report}){
+  const urgent=report.issues.filter(i=>i.priority==="긴급").length;
+  const high=report.issues.filter(i=>i.priority==="높음").length;
+  const needCheck=report.issues.filter(i=>i.level==="확인 필요").length;
+  const level:"danger"|"caution"|"good"=urgent?"danger":high?"caution":"good";
+  const signal=signalText[level];
+  return <div className="overview">
+  <section className={`overallCard ${level}`}>
+    <div className="overallHead">
+      <div className="overallLead"><span className="signalDot" aria-hidden="true">{signal.mark}</span><div><small>{signal.label}</small><h2>{report.verdict}</h2></div></div>
+      <div className="verdictStats" aria-label="발견 항목 요약">
+        <span className="stat danger"><b>{urgent}</b>긴급</span><span className="stat caution"><b>{high}</b>높음</span>
+        <span className="stat unknown"><b>{needCheck}</b>확인 필요</span><span className="stat"><b>{report.filesRead.length}</b>확인 파일</span>
+      </div>
+    </div>
+    <p>{report.summary}</p>
+  </section>
   <section className="actionSection"><div><small>다음 확인 순서</small><h2>지금 해야 할 일</h2><p>우선순위가 높은 실행 점검만 골랐습니다.</p></div><ol>{report.nextActions.map((x,i)=><li key={x}><i>{i+1}</i><span>{x}</span></li>)}</ol></section>
-  <section className="decisionSection"><div className="sectionIntro"><h2>분야별 판단</h2><p>판정 이유와 확인 근거, 다음 행동을 함께 확인하세요.</p></div><div className="decisionGrid">{report.decisions.map(d=><article className={`decisionCard ${d.tone}`} key={d.area}><div><small>{d.area}</small><h3>{d.verdict}</h3></div><p>{d.reason}</p><div className="evidence"><b>확인 근거</b>{d.evidence.map(x=><span key={x}>• {x}</span>)}</div><div className="next"><b>다음 행동</b><p>{d.next}</p></div></article>)}</div></section>
+  <section className="decisionSection"><div className="sectionIntro"><h2>분야별 판단</h2><p>위험·주의 항목은 펼쳐져 있습니다. 나머지는 눌러서 근거와 다음 행동을 확인하세요.</p></div><div className="decisionList">{report.decisions.map(d=><details className={`decisionCard ${d.tone}`} key={d.area} open={d.tone==="danger"||d.tone==="caution"}>
+    <summary><div><small>{d.area}</small><b>{d.verdict}</b></div><span className="chev">⌄</span></summary>
+    <div className="decisionBody"><p>{d.reason}</p>{d.evidence.length>0&&<div className="evidence"><b>확인 근거</b>{d.evidence.map((x,i)=><span key={`${x}-${i}`}>• {x}</span>)}</div>}<div className="next"><b>다음 행동</b><p>{d.next}</p></div></div>
+  </details>)}</div></section>
+  <section className="judgmentSection"><h2>현재 단계에서 가능한 판단</h2><div>{report.currentJudgments.map(j=><article className={j.tone} key={j.label}><small>{j.label}</small><b>{j.value}</b></article>)}</div></section>
   <section className="scopeMeaning"><h2>확인 범위의 의미</h2><p>• 주요 파일 <b>{report.filesRead.length}개</b>를 실제로 읽어 프로젝트 구조를 확인했습니다.</p><p>• 테스트 관련 파일 <b>{report.tests.files.length}개</b>를 발견했지만 실제 실행하지 않았습니다.</p><p>• 운영 환경변수, 데이터베이스 권한, 실제 빌드와 배포 로그는 확인하지 못했습니다.</p></section>
 </div>}
 function SkippedUi(){return <div className="skippedUi"><div className="skipIcon">—</div><span>진단 제외</span><h2>배포 URL이 입력되지 않았습니다</h2><p>코드 진단은 정상적으로 완료됐지만 실제 화면을 열어보지 않았으므로 UI·UX, 모바일, 접근성은 평가하지 않았습니다.</p><div><b>UI 진단을 받으려면</b><p>‘새 저장소 분석’을 눌러 실제 접속 가능한 배포 URL을 함께 입력하세요.</p></div></div>}

@@ -1,0 +1,19 @@
+# 의존성
+node_modules/
+
+# 빌드 산출물
+dist/
+.vinext/
+*.tsbuildinfo
+
+# 로컬 실행 환경
+.wrangler/
+.sites-runtime/
+
+# 환경변수 (.env.example은 커밋합니다)
+.env
+.env.*
+!.env.example
+
+# OS·에디터
+.DS_Store
