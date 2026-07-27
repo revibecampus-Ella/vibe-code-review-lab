@@ -109,7 +109,8 @@ function analyzeFiles(files:{path:string;content:string}[],blobs:TreeItem[]){
     if(secret)out.push(issue("코드에 비밀값으로 보이는 문자열이 있습니다","긴급","추정됨","보안",f.path,`${secret[0].slice(0,28)}… 형태의 값을 확인했습니다. 실제 유효한 키인지는 확인하지 않았습니다.`,"하드코딩 의심","유효한 값이면 외부에 노출되어 악용될 수 있습니다.","비밀 저장소나 환경변수로 옮기고 해당 키의 유효성을 확인하세요."));
     if(f.content.length>45000)out.push(issue("한 파일에 많은 코드가 모여 있습니다","중간","확인됨","유지보수",f.path,`읽은 파일 크기가 약 ${Math.round(f.content.length/1000)}KB입니다.`,"대형 파일","기능 위치를 찾고 수정 영향 범위를 판단하기 어려울 수 있습니다.","화면·데이터·도우미 기능 단위로 분리할 수 있는지 검토하세요."));
     if(/fetch\s*\(/.test(f.content)&&!/(catch\s*\(|try\s*\{)/.test(f.content))out.push(issue("네트워크 실패 처리 여부를 확인해야 합니다","높음","추정됨","오류",f.path,"fetch 호출은 있으나 같은 파일에서 try/catch 또는 catch 처리를 찾지 못했습니다.","실패 처리 미확인","통신 오류 시 빈 화면이나 이해하기 어려운 오류가 나타날 수 있습니다.","로딩·성공·실패 상태와 사용자용 안내 문구를 명시하세요."));
-    if(/dangerouslySetInnerHTML/.test(f.content))out.push(issue("HTML 직접 삽입 사용을 확인했습니다","높음","확인됨","보안",f.path,"dangerouslySetInnerHTML 사용 문자열을 직접 확인했습니다.","입력 출처와 정제 여부 미확인","외부 입력이 섞이면 스크립트 삽입 위험이 생길 수 있습니다.","입력 출처를 확인하고 신뢰할 수 있는 정제 라이브러리를 적용하세요."));
+    // 이름만 나오는 경우는 주석·문서·검사 규칙일 수 있으므로 값을 넣는 형태만 봅니다.
+    if(/dangerouslySetInnerHTML\s*[=:]/.test(f.content))out.push(issue("HTML 직접 삽입 사용을 확인했습니다","높음","확인됨","보안",f.path,"dangerouslySetInnerHTML 속성에 값을 넣는 코드를 직접 확인했습니다.","입력 출처와 정제 여부 미확인","외부 입력이 섞이면 스크립트 삽입 위험이 생길 수 있습니다.","입력 출처를 확인하고 신뢰할 수 있는 정제 라이브러리를 적용하세요."));
   }
   const pkg=files.find(x=>x.path==="package.json");
   if(pkg&&!/"scripts"\s*:\s*\{[^}]*"test"/s.test(pkg.content))out.push(issue("package.json에 test 명령이 없습니다","중간","확인됨","테스트","package.json","scripts 영역에서 test 명령을 찾지 못했습니다.","표준 테스트 명령 미확인","새 담당자가 테스트 방법을 바로 알기 어렵습니다.","프로젝트의 대표 테스트 명령을 scripts.test에 연결하세요."));
