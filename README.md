@@ -60,15 +60,30 @@ app/
 
 Node.js 22 이상이 필요합니다.
 
+`vite.config.ts`가 `.openai/hosting.json`을 읽습니다. 이 파일은 배포할 때 호스팅
+플랫폼이 넣어 주기 때문에 저장소에는 없고, 로컬에서는 직접 만들어야 합니다.
+만들지 않으면 `Could not resolve './.openai/hosting.json'` 오류로 실행과 빌드가
+모두 멈춥니다.
+
+```bash
+mkdir -p .openai
+echo '{"d1":null,"r2":null}' > .openai/hosting.json
+```
+
+`d1`과 `r2`는 Cloudflare 바인딩 이름입니다. 데이터베이스를 쓰지 않는다면 위처럼
+`null`로 두고, D1을 쓸 때는 `{"d1":"DB","r2":null}`처럼 바인딩 이름을 적습니다.
+
 ```bash
 npm install
 npm run dev
 ```
 
-## 빌드
+## 빌드와 테스트
 
 ```bash
-npm run build
+npm run build   # 빌드와 산출물 검증
+npm test        # 빌드 후 렌더링 결과 확인
+npm run lint
 ```
 
 ## 공개 배포 화면
