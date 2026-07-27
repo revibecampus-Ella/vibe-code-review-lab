@@ -24,8 +24,8 @@ export async function POST(request:Request){
     if(search.rateLimited)return rateLimitResponse(search.reset);
     if(!search.ok)return Response.json({error:"GitHub 공개 저장소 검색에 실패했습니다. 주소와 잠시 후의 재시도 여부를 확인해 주세요."},{status:502});
     const merged=new Map<number,GitHubRepo>();for(const repo of search.items)if(!repo.archived&&!repo.fork)merged.set(repo.id,repo);
-    const items=[...merged.values()].map(repo=>recommend(repo,terms,purpose)).sort((a,b)=>b.stars-a.stars||new Date(b.pushedAt).getTime()-new Date(a.pushedAt).getTime()).slice(0,18);
-    const value={searchedTerms:terms,totalCandidates:merged.size,expanded:false,note:"이름·설명·README에서 넓게 검색한 뒤 공개 메타데이터를 근거로 적합도를 판단했습니다. 목록은 Star가 높은 순입니다.",items};
+    const items=[...merged.values()].map(repo=>recommend(repo,terms,purpose)).sort((a,b)=>b.suitabilityScore-a.suitabilityScore||b.stars-a.stars||new Date(b.pushedAt).getTime()-new Date(a.pushedAt).getTime()).slice(0,18);
+    const value={searchedTerms:terms,totalCandidates:merged.size,expanded:false,note:"이름·설명·README에서 넓게 검색한 뒤 공개 메타데이터를 근거로 적합도를 판단했습니다. 목록은 적합도 점수가 높은 순이며, 점수가 같으면 Star가 높은 순입니다.",items};
     responseCache.set(cacheKey,{expires:Date.now()+10*60*1000,value});
     pruneCache();
     return Response.json(value);

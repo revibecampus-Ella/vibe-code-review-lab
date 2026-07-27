@@ -123,7 +123,7 @@ function RepoWorkbench(){
   async function copy(text:string){await navigator.clipboard.writeText(text);alert("클립보드에 복사했습니다.")}
   return <section className="repoWorkbench">
     <section className="purposeFinder">
-      <div className="purposeIntro"><div><small>유지비가 적은 목적형 프로젝트 찾기</small><h2>어떤 일에 활용할 프로젝트인가요?</h2><p>대규모 시스템보다 콘텐츠 자산화와 고객 접점 자동화에 바로 활용할 수 있는 경량 프로젝트를 찾습니다.</p></div><span>Star 높은 순</span></div>
+      <div className="purposeIntro"><div><small>유지비가 적은 목적형 프로젝트 찾기</small><h2>어떤 일에 활용할 프로젝트인가요?</h2><p>대규모 시스템보다 콘텐츠 자산화와 고객 접점 자동화에 바로 활용할 수 있는 경량 프로젝트를 찾습니다.</p></div><span>적합도 높은 순</span></div>
       <div className="businessChoices">{businessTopics.map(x=><button className={business===x.id?"active":""} key={x.id} onClick={()=>chooseBusiness(x.id)}><b>{x.label}</b><small>{x.description}</small></button>)}</div>
       <div className="topicChooser"><b>{activeBusiness.label}의 추천 검색어</b><div>{activeBusiness.topics.map(([value,label])=><button className={topic===value?"active":""} key={value} onClick={()=>chooseTopic(value,label)}>{label}<code>{value}</code></button>)}</div></div>
       <label className="keywordInput"><b>검색 키워드</b><small>추천어를 그대로 쓰거나 원하는 말로 바꿔 검색하세요. 여러 조건을 강제로 묶지 않습니다.</small><input value={topic} onChange={e=>{setTopic(e.target.value);setTopicLabel(e.target.value)}} placeholder="예: landing page, newsletter, booking system"/></label>
