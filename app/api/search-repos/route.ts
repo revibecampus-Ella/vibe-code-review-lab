@@ -51,6 +51,15 @@ function rateLimitResponse(reset:string|null){
   const time=reset?new Date(Number(reset)*1000).toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"}):"잠시 후";
   return Response.json({error:`GitHub 공개 검색 요청 한도에 도달했습니다. ${time} 이후 다시 시도해 주세요.`},{status:429})
 }
+// 링크 모음·학습 자료처럼 진단할 코드가 거의 없는 저장소를 찾아냅니다.
+function documentSignals(repo:GitHubRepo){
+  const signals:string[]=[];
+  if(/(^awesome[-_]?|[-_]awesome$)/i.test(repo.name))signals.push("이름");
+  if((repo.topics||[]).some(t=>/^(awesome|awesome-list|awesome-lists|list|lists|resources|curated|curated-list|collection)$/i.test(t)))signals.push("주제 태그");
+  if(/(curated list|awesome list|a list of|list of|collection of|curated collection)/i.test(repo.description||""))signals.push("설명");
+  if(!repo.language)signals.push("주 언어 미감지");
+  return signals;
+}
 function recommend(repo:GitHubRepo,terms:string[],purpose:string){
   const haystack=`${repo.name} ${repo.description||""} ${(repo.topics||[]).join(" ")}`.toLowerCase();const matched=terms.filter(term=>haystack.includes(term.toLowerCase()));
   let score=Math.min(34,matched.length*12);const reasons:string[]=[];if(matched.length)reasons.push(`주제 관련어 ${matched.slice(0,3).join("·")} 확인`);
@@ -61,7 +70,9 @@ function recommend(repo:GitHubRepo,terms:string[],purpose:string){
   score+=Math.min(5,Math.log10(Math.max(1,repo.stargazers_count))*1.8);
   const words:Record<string,string[]>={structure:["starter","template","architecture","boilerplate","clean"],test:["test","testing","vitest","jest","playwright","cypress"],security:["security","auth","owasp","permission","vulnerability"],ui:["frontend","ui","dashboard","design-system","responsive"],overall:["fullstack","production","starter","template"]};
   const purposeMatches=(words[purpose]||words.overall).filter(word=>haystack.includes(word));if(purposeMatches.length){score+=Math.min(18,purposeMatches.length*7);reasons.push(`선택 목적 관련 신호 ${purposeMatches.slice(0,3).join("·")} 확인`)}
-  score=Math.round(Math.min(100,score));const suitabilityLabel=score>=72?"실습 적합도 높음":score>=52?"검토 가치 있음":"조건 확인 필요";
+  const docSignals=documentSignals(repo);
+  if(docSignals.length){score-=docSignals.length>=2?35:15;reasons.unshift(`문서·목록형 저장소로 보임 (${docSignals.join(", ")})`)}
+  score=Math.round(Math.max(0,Math.min(100,score)));const suitabilityLabel=score>=72?"실습 적합도 높음":score>=52?"검토 가치 있음":"조건 확인 필요";
   if(!repo.homepage)reasons.push("배포 화면 URL은 제공되지 않음");if(!repo.license?.spdx_id)reasons.push("라이선스 표시를 확인하지 못함");
   return{name:repo.name,fullName:repo.full_name,htmlUrl:repo.html_url,homepage:repo.homepage||"",description:repo.description||"프로젝트 설명이 등록되지 않았습니다.",language:repo.language||"미확인",stars:repo.stargazers_count,pushedAt:repo.pushed_at,license:repo.license?.spdx_id||"미확인",topics:(repo.topics||[]).slice(0,6),suitabilityScore:score,suitabilityLabel,reasons:reasons.slice(0,5)}
 }
