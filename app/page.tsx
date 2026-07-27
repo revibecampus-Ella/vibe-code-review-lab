@@ -49,6 +49,8 @@ export default function Home(){
     finally{setLoading(false)}
   }
   function reset(){setReport(null);setError("");setTab("종합판정");window.scrollTo({top:0,behavior:"smooth"})}
+  // 입력까지 비우고 첫 화면으로 되돌립니다.
+  function goHome(){reset();setRepoUrl("");setDeployUrl("");setPurpose("");setFinderNotice("");setEntryMode("direct")}
   function markdown(){
     if(!report)return"";return `# Vibe Code Review Lab 진단 보고서\n\n- 프로젝트: ${report.repo.name}\n- 종합결론: ${report.verdict}\n- 확인 범위: ${report.summary}\n\n## 지금 해야 할 일\n${report.nextActions.map((x,i)=>`${i+1}. ${x}`).join("\n")}\n\n## 상세 항목\n${report.issues.map(i=>`### ${i.title}\n- 우선순위: ${i.priority}\n- 검증 수준: ${i.level}\n- 위치: ${i.location}\n- 근거: ${i.evidence}\n- 권장 조치: ${i.recommendation}`).join("\n\n")}\n\n> 공개된 소스코드와 접근 가능한 배포 화면 기준 읽기 전용 분석입니다.`;
   }
@@ -66,7 +68,7 @@ export default function Home(){
 
   return <div className={`app scale-${fontScale}`}>
     <AccessibilityBar scale={fontScale} setScale={setFontScale}/>
-    <Header/>
+    <Header onHome={goHome}/>
     {!report&&!loading&&<main className={`mainShell ${entryMode==="finder"?"finderShell":""}`}>
       <section className="landingHero">
         <span className="preflight">ⓘ 배포 전 꼭 확인하세요</span>
@@ -77,7 +79,7 @@ export default function Home(){
         <button className={entryMode==="direct"?"active":""} onClick={()=>setEntryMode("direct")}><span>⌘</span><b>GitHub 주소 직접 입력</b><small>알고 있는 공개 저장소를 바로 진단합니다.</small></button>
         <button className={entryMode==="finder"?"active":""} onClick={()=>setEntryMode("finder")}><span>⌕</span><b>공개 Repo 찾아보기</b><small>주제를 넓게 검색한 뒤 적합한 후보를 고릅니다.</small></button>
       </section>
-      {entryMode==="finder"&&<RepoWorkbench/>}
+      {entryMode==="finder"&&<RepoWorkbench onHome={goHome}/>}
       {entryMode==="direct"&&<section className="inputCard" id="diagnosis-form">
         {finderNotice&&<div className="finderNotice">✓ {finderNotice}</div>}
         <label><b>1. GitHub Repository URL <em>* 필수</em></b><small>분석할 공개 저장소 주소를 입력하세요.</small><div className="bigInput"><span>⌘</span><input type="url" value={repoUrl} onChange={e=>setRepoUrl(e.target.value)} placeholder="https://github.com/사용자명/저장소명"/></div></label>
@@ -91,12 +93,12 @@ export default function Home(){
       </section>}
     </main>}
     {loading&&<Progress hasDeploy={Boolean(deployUrl)}/>}
-    {report&&<ResultDashboard report={report} tab={tab} setTab={setTab} visibleIssues={visibleIssues} deployProvided={Boolean(deployUrl)} reset={reset} copy={copy} markdown={markdown}/>}
+    {report&&<ResultDashboard report={report} tab={tab} setTab={setTab} visibleIssues={visibleIssues} deployProvided={Boolean(deployUrl)} reset={reset} goHome={goHome} copy={copy} markdown={markdown}/>}
     <Footer/>
   </div>
 }
 
-function RepoWorkbench(){
+function RepoWorkbench({onHome}:{onHome:()=>void}){
   const [business,setBusiness]=useState("infopreneur");const [topic,setTopic]=useState("landing page");const [topicLabel,setTopicLabel]=useState("랜딩페이지");
   const [language,setLanguage]=useState("");const [goal,setGoal]=useState("overall");const [minStars,setMinStars]=useState("10");
   const [searching,setSearching]=useState(false);const [error,setError]=useState("");const [items,setItems]=useState<RepoCandidate[]>([]);const [selectedRepo,setSelectedRepo]=useState<RepoCandidate|null>(null);
@@ -149,7 +151,7 @@ function RepoWorkbench(){
         {!selectedRepo&&<div className="selectGuide"><span>←</span><h2>진단할 Repo를 선택하세요</h2><p>왼쪽 검색 결과는 그대로 유지됩니다. 한 번에 하나씩 선택해 독립적으로 진단할 수 있습니다.</p></div>}
         {selectedRepo&&!report&&!analyzing&&<section className="selectedSummary"><span className="selectionLabel">선택한 Repo</span><h2>{selectedRepo.fullName}</h2><p>{selectedRepo.description}</p><div className="selectedFacts"><span>{selectedRepo.language}</span><span>★ {selectedRepo.stars.toLocaleString()}</span><span>{selectedRepo.license}</span><span>{selectedRepo.homepage?"배포 화면 있음":"배포 화면 없음"}</span></div><div className="selectionReasons"><h3>추천 판단 근거</h3>{selectedRepo.reasons.map(x=><p key={x}>✓ {x}</p>)}</div>{!selectedRepo.homepage&&<div className="optionalNote"><b>UI·UX 진단 제외</b><span>배포 URL이 없어 코드만 진단합니다.</span></div>}<button className="startButton" onClick={analyzeSelected}>이 Repo 독립 진단 시작</button></section>}
         {analyzing&&<Progress hasDeploy={Boolean(selectedRepo?.homepage)}/>}
-        {report&&<ResultDashboard report={report} tab={tab} setTab={setTab} visibleIssues={visibleIssues} deployProvided={Boolean(selectedRepo?.homepage)} reset={()=>setReport(null)} copy={copy} markdown={md}/>}
+        {report&&<ResultDashboard report={report} tab={tab} setTab={setTab} visibleIssues={visibleIssues} deployProvided={Boolean(selectedRepo?.homepage)} reset={()=>setReport(null)} goHome={onHome} copy={copy} markdown={md}/>}
       </div>
     </div>
   </section>
@@ -158,19 +160,19 @@ function RepoWorkbench(){
 function AccessibilityBar({scale,setScale}:{scale:string;setScale:(v:"normal"|"large"|"xlarge")=>void}){
   return <aside className="accessBar" aria-label="화면 설정"><div><span className="demoBadge">가독성 강화</span><p>큰 글자와 높은 대비를 적용한 비개발자용 화면</p></div><div className="fontControls"><span>글자 크기</span>{[["normal","기본"],["large","크게"],["xlarge","매우 크게"]].map(([v,t])=><button key={v} className={scale===v?"active":""} onClick={()=>setScale(v as "normal"|"large"|"xlarge")}>{t}</button>)}</div></aside>
 }
-function Header(){return <header className="siteHeader"><div className="headerInner"><div className="logo"><span>⌕</span><div><b>Vibe Code Review Lab</b><small>비개발자를 위한 바이브코딩 안전 진단 보고서</small></div></div><div className="safeBadge">◆ 100% 읽기 전용 진단 <span>(코드 수정 없음)</span></div></div></header>}
+function Header({onHome}:{onHome:()=>void}){return <header className="siteHeader"><div className="headerInner"><button type="button" className="logo" onClick={onHome} aria-label="처음 화면으로 이동"><span>⌕</span><div><b>Vibe Code Review Lab</b><small>비개발자를 위한 바이브코딩 안전 진단 보고서</small></div></button><div className="safeBadge">◆ 100% 읽기 전용 진단 <span>(코드 수정 없음)</span></div></div></header>}
 function Progress({hasDeploy}:{hasDeploy:boolean}){const steps=["Repository 접근 및 README 확인","폴더 구조 및 주요 파일 스캔","보안 키·오류·테스트 상태 점검",hasDeploy?"배포 화면 UI·UX 확인":"UI·UX 진단 제외 — 배포 URL 미입력","종합결론과 다음 행동 작성"];return <main className="progressShell"><section className="progressCard"><div className="spinner">◌</div><h1>프로젝트 분석을 진행하고 있습니다</h1><p>잠시만 기다려 주세요. 공개된 정보를 읽기 전용으로 안전하게 확인하고 있습니다.</p><div className="stepList">{steps.map((s,i)=><div className={i<2?"done":i===2?"doing":i===3&&!hasDeploy?"skipped":"waiting"} key={s}><i>{i<2?"✓":i===2?"◌":i===3&&!hasDeploy?"—":"○"}</i><span>{i+1}. {s}</span></div>)}</div></section></main>}
-function ResultDashboard({report,tab,setTab,visibleIssues,deployProvided,reset,copy,markdown}:{report:Report;tab:string;setTab:(v:string)=>void;visibleIssues:Issue[];deployProvided:boolean;reset:()=>void;copy:(v:string)=>void;markdown:()=>string}){
+function ResultDashboard({report,tab,setTab,visibleIssues,deployProvided,reset,goHome,copy,markdown}:{report:Report;tab:string;setTab:(v:string)=>void;visibleIssues:Issue[];deployProvided:boolean;reset:()=>void;goHome:()=>void;copy:(v:string)=>void;markdown:()=>string}){
   return <main className="resultShell" id="result-top">
     <div className="limitNotice"><span>⚠</span><div><b>분석 범위 한계 안내</b><p>본 결과는 공개된 소스코드와 접근 가능한 배포 화면을 기반으로 한 읽기 전용 분석입니다. 실제 빌드·테스트·운영 DB 환경 검증 결과와 다를 수 있습니다.</p></div></div>
-    <section className="reportHeader"><div className="reportIdentity"><span className="completeBadge">분석 완료</span><h1>{report.repo.name}</h1><div className="bilingualDescription"><p><b>GitHub 설명</b>{report.repo.description||"Repository 설명이 제공되지 않았습니다."}</p><p><b>README 요약</b>{report.repo.descriptionKo}<small>{report.repo.readmePath||"README 미확인"}</small></p></div><div className="reportMeta"><span>기본 브랜치: {report.repo.defaultBranch}</span>{report.repo.deployUrl?<a href={report.repo.deployUrl} target="_blank" rel="noreferrer">◎ 배포 URL 열기 ↗</a>:<span className="noDeploy">— 배포 URL 미확인 · UI 진단 제외</span>}</div></div><div className="reportActions"><button onClick={()=>copy(markdown())}>▣ 보고서 복사</button><button onClick={()=>window.print()}>▤ 인쇄 / PDF</button><button className="blue" onClick={reset}>↻ 진단 설정으로 돌아가기</button></div></section>
+    <section className="reportHeader"><div className="reportIdentity"><span className="completeBadge">분석 완료</span><h1>{report.repo.name}</h1><div className="bilingualDescription"><p><b>GitHub 설명</b>{report.repo.description||"Repository 설명이 제공되지 않았습니다."}</p><p><b>README 요약</b>{report.repo.descriptionKo}<small>{report.repo.readmePath||"README 미확인"}</small></p></div><div className="reportMeta"><span>기본 브랜치: {report.repo.defaultBranch}</span>{report.repo.deployUrl?<a href={report.repo.deployUrl} target="_blank" rel="noreferrer">◎ 배포 URL 열기 ↗</a>:<span className="noDeploy">— 배포 URL 미확인 · UI 진단 제외</span>}</div></div><div className="reportActions"><button onClick={()=>copy(markdown())}>▣ 보고서 복사</button><button onClick={()=>window.print()}>▤ 인쇄 / PDF</button><button className="blue" onClick={reset}>↻ 진단 설정으로 돌아가기</button><button className="blue" onClick={goHome}>⌂ 처음으로</button></div></section>
     <nav className="resultTabs" aria-label="진단 결과 항목">{tabs.map(t=><button key={t} className={tab===t?"active":""} onClick={()=>setTab(t)}>{t}{t==="UI·UX 점검"&&!deployProvided?" · 제외":""}</button>)}</nav>
     {tab==="종합판정"&&<Overview report={report}/>}
     {tab==="프로젝트 구조"&&<section className="tabPanel scopeGrid"><Scope title="실제 확인한 파일" items={report.filesRead}/><Scope title="구조만 확인한 폴더" items={report.foldersSeen}/><Scope title="분석하지 못한 범위" items={report.notAnalyzed}/><Scope title="제외한 파일 유형" items={report.excluded}/></section>}
     {tab==="테스트 현황"&&<section className="tabPanel"><StatusCard label="실행 결과 미확인" title={report.tests.status} text={report.tests.method}/><Scope title="확인한 테스트 관련 파일" items={report.tests.files}/><IssueList issues={visibleIssues}/></section>}
     {tab==="UI·UX 점검"&&<section className="tabPanel">{!deployProvided?<SkippedUi/>:<><StatusCard label={report.ui.status} title="배포 화면 확인 결과" text={report.ui.note}/>{report.ui.evidence.length>0&&<div className="evidenceList">{report.ui.evidence.map(x=><p key={x}>✓ {x}</p>)}</div>}<IssueList issues={visibleIssues}/></>}</section>}
     {!["종합판정","프로젝트 구조","테스트 현황","UI·UX 점검"].includes(tab)&&<section className="tabPanel">{visibleIssues.length?<IssueList issues={visibleIssues}/>:<Empty/>}</section>}
-    <div className="bottomActions"><button onClick={()=>copy(document.body.innerText)}>전체 화면 내용 복사</button><button onClick={()=>copy(markdown())}>Markdown 복사</button><button onClick={()=>window.print()}>인쇄·PDF 저장</button></div>
+    <div className="bottomActions"><button onClick={()=>copy(document.body.innerText)}>전체 화면 내용 복사</button><button onClick={()=>copy(markdown())}>Markdown 복사</button><button onClick={()=>window.print()}>인쇄·PDF 저장</button><button className="blue" onClick={reset}>↻ 진단 설정으로 돌아가기</button><button className="blue" onClick={goHome}>⌂ 처음으로</button></div>
   </main>
 }
 const signalText={danger:{mark:"!",label:"먼저 수정이 필요합니다"},caution:{mark:"△",label:"보완 후 진행할 수 있습니다"},good:{mark:"✓",label:"뚜렷한 위험 신호는 없습니다"}};
@@ -199,7 +201,7 @@ function Overview({report}:{report:Report}){
   <section className="judgmentSection"><h2>현재 단계에서 가능한 판단</h2><div>{report.currentJudgments.map(j=><article className={j.tone} key={j.label}><small>{j.label}</small><b>{j.value}</b></article>)}</div></section>
   <section className="scopeMeaning"><h2>확인 범위의 의미</h2><p>• 주요 파일 <b>{report.filesRead.length}개</b>를 실제로 읽어 프로젝트 구조를 확인했습니다.</p><p>• 테스트 관련 파일 <b>{report.tests.files.length}개</b>를 발견했지만 실제 실행하지 않았습니다.</p><p>• 운영 환경변수, 데이터베이스 권한, 실제 빌드와 배포 로그는 확인하지 못했습니다.</p></section>
 </div>}
-function SkippedUi(){return <div className="skippedUi"><div className="skipIcon">—</div><span>진단 제외</span><h2>배포 URL이 입력되지 않았습니다</h2><p>코드 진단은 정상적으로 완료됐지만 실제 화면을 열어보지 않았으므로 UI·UX, 모바일, 접근성은 평가하지 않았습니다.</p><div><b>UI 진단을 받으려면</b><p>‘새 저장소 분석’을 눌러 실제 접속 가능한 배포 URL을 함께 입력하세요.</p></div></div>}
+function SkippedUi(){return <div className="skippedUi"><div className="skipIcon">—</div><span>진단 제외</span><h2>배포 URL이 입력되지 않았습니다</h2><p>코드 진단은 정상적으로 완료됐지만 실제 화면을 열어보지 않았으므로 UI·UX, 모바일, 접근성은 평가하지 않았습니다.</p><div><b>UI 진단을 받으려면</b><p>‘진단 설정으로 돌아가기’를 눌러 실제 접속 가능한 배포 URL을 함께 입력하세요.</p></div></div>}
 function StatusCard({label,title,text}:{label:string;title:string;text:string}){return <div className="statusCard"><span className="statusLabel">{label}</span><h2>{title}</h2><p>{text}</p></div>}
 function Scope({title,items}:{title:string;items:string[]}){return <article className="scopeCard"><h3>{title}</h3>{items.length?items.map(x=><code key={x}>{x}</code>):<p>해당 항목이 없습니다.</p>}</article>}
 function IssueList({issues}:{issues:Issue[]}){return <div className="issueList">{issues.map((i,n)=><details className={`issue priority-${i.priority}`} key={i.title+n} open={n<3}><summary><div><span className="priority">{i.priority}</span><span className={`verify ${i.level==="확인됨"?"confirmed":i.level==="추정됨"?"inferred":"needed"}`}>{i.level}</span><small>분야: {i.area}</small><b>{i.title}</b></div><span>⌄</span></summary><div className="issueBody"><dl><dt>위치</dt><dd><code>{i.location}</code></dd><dt>근거</dt><dd>{i.evidence}</dd><dt>현재 상태</dt><dd>{i.status}</dd><dt>영향</dt><dd>{i.impact}</dd><dt>권장 조치</dt><dd>{i.recommendation}</dd></dl></div></details>)}</div>}
