@@ -135,10 +135,11 @@ function detectStack(files:{path:string;content:string}[],blobs:TreeItem[]){
 async function inspectUi(url:unknown){
   if(!url)return{status:"UI 화면 미확인",evidence:[],note:"배포 URL이 입력되지 않아 UI 평가를 생성하지 않았습니다."};
   try{
-    const {response:r,finalUrl}=await fetchPublicHtml(String(url));
+    const {response:r,finalUrl,deadline}=await fetchPublicHtml(String(url));
     if(!r.ok)return{status:"UI 화면 미확인",evidence:[],note:`배포 서버가 HTTP ${r.status} 응답을 반환했습니다.`};
     const type=r.headers.get("content-type")||""; if(!type.includes("text/html"))return{status:"UI 화면 미확인",evidence:[],note:"HTML 화면 응답을 읽지 못했습니다."};
-    const html=await readTextWithLimit(r,500000); const evidence:string[]=[];
+    const html=await readTextWithLimit(r,500000,deadline); const evidence:string[]=[];
+    evidence.push("공개 주소로 확인 (로컬·사설 IP 아님)");
     if(finalUrl!==String(url))evidence.push("공개 주소의 안전한 리디렉션 경로 확인");
     const title=html.match(/<title[^>]*>([^<]*)/i)?.[1]?.trim(); if(title)evidence.push(`페이지 제목 확인: ${title}`);
     if(/name=["']viewport["']/i.test(html))evidence.push("모바일 viewport 설정 확인");
@@ -149,6 +150,7 @@ async function inspectUi(url:unknown){
   }catch(error){
     const message=error instanceof Error?error.message:"";
     if(message==="BLOCKED_HOST")return{status:"UI 화면 미확인",evidence:[],note:"보안을 위해 로컬·사설 네트워크 또는 메타데이터 주소는 확인하지 않습니다."};
+    if(message==="DNS_LOOKUP_FAILED")return{status:"UI 화면 미확인",evidence:[],note:"배포 주소가 가리키는 실제 서버를 확인하지 못해 안전을 위해 요청하지 않았습니다."};
     if(message==="RESPONSE_TOO_LARGE")return{status:"UI 화면 미확인",evidence:[],note:"화면 응답이 500KB를 넘어 안전을 위해 수집을 중단했습니다."};
     if(message==="FETCH_TIMEOUT")return{status:"UI 화면 미확인",evidence:[],note:"배포 화면이 제한 시간 안에 응답하지 않아 수집을 중단했습니다."};
     return{status:"UI 화면 미확인",evidence:[],note:"주소 오류, 로그인 필요, 서버 오류 또는 화면 수집 제한으로 확인하지 못했습니다."};
@@ -156,13 +158,18 @@ async function inspectUi(url:unknown){
 }
 
 const redirectStatuses=new Set([301,302,303,307,308]);
+const TOTAL_TIMEOUT_MS=8000;
+const DNS_TIMEOUT_MS=3000;
+const DOH_ENDPOINT="https://cloudflare-dns.com/dns-query";
 
 async function fetchPublicHtml(input:string){
+  const deadline=Date.now()+TOTAL_TIMEOUT_MS;
   let current=new URL(input);
   for(let redirects=0;redirects<=4;redirects++){
-    assertPublicUrl(current);
+    await assertPublicTarget(current,deadline);
+    const remaining=deadline-Date.now();if(remaining<=0)throw new Error("FETCH_TIMEOUT");
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),8000);
+    const timer=setTimeout(()=>controller.abort(),remaining);
     let response:Response;
     try{
       response=await fetch(current,{redirect:"manual",signal:controller.signal,headers:{"User-Agent":"Vibe-Code-Review-Lab","Accept":"text/html,application/xhtml+xml"}});
@@ -170,7 +177,7 @@ async function fetchPublicHtml(input:string){
       if(error instanceof Error&&error.name==="AbortError")throw new Error("FETCH_TIMEOUT");
       throw error;
     }finally{clearTimeout(timer)}
-    if(!redirectStatuses.has(response.status))return{response,finalUrl:current.toString()};
+    if(!redirectStatuses.has(response.status))return{response,finalUrl:current.toString(),deadline};
     const location=response.headers.get("location");
     if(!location)throw new Error("INVALID_REDIRECT");
     current=new URL(location,current);
@@ -178,11 +185,46 @@ async function fetchPublicHtml(input:string){
   throw new Error("TOO_MANY_REDIRECTS");
 }
 
+// 주소 문자열만 보면 평범한 도메인이 실제로는 사설 IP를 가리킬 수 있으므로
+// 이름을 실제로 조회해 응답에 담긴 주소까지 함께 확인합니다.
+async function assertPublicTarget(url:URL,deadline:number){
+  const host=assertPublicUrl(url);
+  if(isIpLiteral(host))return;
+  const addresses=await resolveHostAddresses(host,deadline);
+  if(!addresses.length)throw new Error("DNS_LOOKUP_FAILED");
+  for(const address of addresses)if(isBlockedIpv4(address)||isBlockedIpv6(address))throw new Error("BLOCKED_HOST");
+}
+
 function assertPublicUrl(url:URL){
   if(!["http:","https:"].includes(url.protocol)||url.username||url.password)throw new Error("BLOCKED_HOST");
   const host=url.hostname.toLowerCase().replace(/^\[|\]$/g,"").replace(/\.$/,"");
   if(!host||host==="localhost"||host.endsWith(".localhost")||host.endsWith(".local")||host.endsWith(".internal")||host.endsWith(".home.arpa")||host==="metadata.google.internal")throw new Error("BLOCKED_HOST");
   if(isBlockedIpv4(host)||isBlockedIpv6(host))throw new Error("BLOCKED_HOST");
+  return host;
+}
+
+function isIpLiteral(host:string){return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)||host.includes(":")}
+
+// 조회에 실패하면 통과시키지 않고 막습니다. 확인하지 못한 주소를 그대로
+// 요청하면 검사 자체가 의미를 잃기 때문입니다.
+async function resolveHostAddresses(host:string,deadline:number){
+  const addresses:string[]=[];
+  for(const type of ["A","AAAA"]){
+    const remaining=Math.min(DNS_TIMEOUT_MS,deadline-Date.now());
+    if(remaining<=0)throw new Error("FETCH_TIMEOUT");
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),remaining);
+    try{
+      const r=await fetch(`${DOH_ENDPOINT}?name=${encodeURIComponent(host)}&type=${type}`,{signal:controller.signal,headers:{"Accept":"application/dns-json","User-Agent":"Vibe-Code-Review-Lab"}});
+      if(!r.ok)throw new Error("DNS_LOOKUP_FAILED");
+      const data=await r.json() as {Answer?:{type:number;data:string}[]};
+      for(const answer of data.Answer||[])if(answer.type===1||answer.type===28)addresses.push(answer.data.trim().toLowerCase().replace(/\.$/,""));
+    }catch(error){
+      if(error instanceof Error&&error.name==="AbortError")throw new Error("FETCH_TIMEOUT");
+      throw new Error("DNS_LOOKUP_FAILED");
+    }finally{clearTimeout(timer)}
+  }
+  return addresses;
 }
 
 function isBlockedIpv4(host:string){
@@ -201,11 +243,11 @@ function isBlockedIpv6(host:string){
   return mapped?isBlockedIpv4(mapped[1]):false;
 }
 
-async function readTextWithLimit(response:Response,maxBytes:number){
+async function readTextWithLimit(response:Response,maxBytes:number,deadline:number){
   const declared=Number(response.headers.get("content-length")||0);
   if(declared>maxBytes)throw new Error("RESPONSE_TOO_LARGE");
   if(!response.body)return"";
-  const reader=response.body.getReader();const decoder=new TextDecoder();let received=0;let text="";const deadline=Date.now()+8000;
+  const reader=response.body.getReader();const decoder=new TextDecoder();let received=0;let text="";
   try{
     while(true){
       const remaining=deadline-Date.now();if(remaining<=0)throw new Error("FETCH_TIMEOUT");
